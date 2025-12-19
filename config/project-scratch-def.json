@@ -1,13 +1,13 @@
 {
-  "orgName": "Demo company",
+  "orgName": "CI Scratch Org",
   "edition": "Developer",
   "features": ["EnableSetPasswordInApi"],
   "settings": {
     "lightningExperienceSettings": {
       "enableS1DesktopEnabled": true
     },
-    "mobileSettings": {
-      "enableS1EncryptedStoragePref2": false
+    "mobileComponentsSettings": {
+      "enableS1OfflineEnabled": true
     }
   }
 }
