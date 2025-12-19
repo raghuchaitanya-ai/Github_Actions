@@ -44,28 +44,11 @@ jobs:
         run: |
           violations=$(wc -l < pmd-report.txt)
           echo "Total Violations Found: $violations"
-          # Threshold set to 250 to allow existing sandbox code to pass
           if [ "$violations" -gt 250 ]; then
             echo "PMD Quality Gate Failed."
             exit 1
-          else
-            echo "PMD Quality Gate Passed."
           fi
 
-      - name: Email PMD Report
-        if: always()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "PMD Report - ${{ github.ref_name }}"
-          to: raghu.chaitanya@jadeglobal.com
-          from: GitHub-Actions
-          body: "PMD Analysis finished with $violations violations. Check artifacts for details."
-
-  # Combined other jobs for efficiency
   deploy-and-test:
     name: Salesforce Validation & Deploy
     runs-on: ubuntu-latest
@@ -82,8 +65,16 @@ jobs:
           echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevHub_GithubDev --sfdx-url-stdin
           echo "${{ secrets.DEVHUB_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevHub_Github --set-default-dev-hub --sfdx-url-stdin
 
-      - name: Run Apex Tests
-        run: sf apex run test --target-org DevHub_GithubDev --result-format human --wait 10 || echo "No tests found, skipping."
+      - name: 1. Deploy to Dev (Fixed Order)
+        # We deploy FIRST so the fixed classes and validation logic are in the Org
+        run: sf project deploy start --source-dir force-app --target-org DevHub_GithubDev --wait 20
 
-      - name: Deploy to Dev
-        run: sf project deploy start --source-dir force-app --target-org DevHub_GithubDev --wait 10
+      - name: 2. Run Apex Tests & Get Coverage
+        # Removed the '|| echo' to make it strict. Added --code-coverage.
+        run: |
+          sf apex run test \
+            --target-org DevHub_GithubDev \
+            --test-level RunLocalTests \
+            --result-format human \
+            --code-coverage \
+            --wait 20
