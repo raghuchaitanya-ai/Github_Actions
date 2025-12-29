@@ -37,26 +37,25 @@ jobs:
       - name: Enforce PMD Quality Gate
         run: |
           violations=$(wc -l < pmd-report.txt)
-          echo "Total Violations Found: $violations"
           if [ "$violations" -gt 250 ]; then
             echo "PMD Quality Gate Failed."
             exit 1
           fi
 
-  validate-and-pr:
-    name: Validate and Open PR
+  validate-and-deploy-dev:
+    name: Dev Validation & PR
     runs-on: ubuntu-latest
     needs: static-code-analysis
     permissions:
       contents: write
       pull-requests: write
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Needed for GH CLI
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Important for detecting file changes
+          fetch-depth: 0
 
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
@@ -68,44 +67,36 @@ jobs:
       - name: Check for Apex Changes
         id: check_apex
         run: |
-          # Check if there are any .cls files in the force-app directory
-          APEX_EXISTS=$(find force-app -name "*.cls" | wc -l)
-          if [ "$APEX_EXISTS" -gt 0 ]; then
+          # Count .cls files to decide if tests are needed
+          count=$(find force-app -name "*.cls" | wc -l)
+          if [ "$count" -gt 0 ]; then
             echo "has_apex=true" >> $GITHUB_OUTPUT
-            echo "Apex code detected. Tests will be required."
           else
             echo "has_apex=false" >> $GITHUB_OUTPUT
-            echo "No Apex code detected. Skipping tests."
           fi
 
-      - name: Validate Deployment to Dev
+      - name: Validation (Dry Run)
         run: |
-          # Set test level based on presence of Apex
-          TEST_LEVEL="NoTestRun"
-          if [ "${{ steps.check_apex.outputs.has_apex }}" == "true" ]; then
-            TEST_LEVEL="RunLocalTests"
-          fi
-          
-          echo "Running validation with TestLevel: $TEST_LEVEL"
-          
+          TEST_LEVEL=$([[ "${{ steps.check_apex.outputs.has_apex }}" == "true" ]] && echo "RunLocalTests" || echo "NoTestRun")
+          echo "Validating with $TEST_LEVEL"
           sf project deploy validate \
             --source-dir force-app \
             --target-org dev_org \
             --test-level $TEST_LEVEL \
             --wait 30
 
-      - name: Deploy to Dev Org (Actual)
-        if: success()
+      - name: Deployment (Actual)
         run: |
+          # Since validation passed, we deploy. 
+          # We use NoTestRun here to save time because we just validated tests above.
           sf project deploy start \
             --source-dir force-app \
             --target-org dev_org \
+            --test-level NoTestRun \
             --wait 30
 
       - name: Open Pull Request to UAT
-        if: success()
         run: |
-          # Checks if a PR already exists to avoid errors
           PR_EXISTS=$(gh pr list --head dev --base uat --json number --jq '.[0].number')
           if [ -z "$PR_EXISTS" ]; then
             gh pr create \
@@ -114,5 +105,5 @@ jobs:
               --title "Release from Dev to UAT: ${{ github.event.head_commit.message }}" \
               --body "Automated PR created after successful Dev validation and PMD check."
           else
-            echo "PR already exists: #$PR_EXISTS. Skipping creation."
+            echo "PR already exists: #$PR_EXISTS."
           fi
