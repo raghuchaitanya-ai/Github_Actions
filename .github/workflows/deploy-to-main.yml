@@ -8,7 +8,6 @@ on:
 
 jobs:
   pmd-main:
-    # ... (Same PMD steps as UAT) ...
     name: PMD Static Code Analysis
     runs-on: ubuntu-latest
     steps:
@@ -46,12 +45,19 @@ jobs:
       - name: Check for Apex
         id: check_apex
         run: |
-          count=$(find force-app -name "*.cls" | wc -l)
+          count=$(find force-app -name "*.cls" | wc -l || echo 0)
           echo "has_apex=$([ $count -gt 0 ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
       - name: Validate Metadata (Dry Run)
         run: |
           TEST_LEVEL=$([[ "${{ steps.check_apex.outputs.has_apex }}" == "true" ]] && echo "RunLocalTests" || echo "NoTestRun")
-          sf project deploy validate --source-dir force-app --target-org Production --test-level $TEST_LEVEL --wait 30
+          echo "Validating Production with TestLevel: $TEST_LEVEL"
+          # Added --verbose for full transparency in Production logs
+          sf project deploy validate \
+            --source-dir force-app \
+            --target-org Production \
+            --test-level $TEST_LEVEL \
+            --wait 30 \
+            --verbose
 
   deploy-main:
     name: Production Deployment
@@ -65,8 +71,12 @@ jobs:
       - name: Authenticate Production
         run: echo "${{ secrets.PROD_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias Production --sfdx-url-stdin
       - name: Final Deployment
-        # We use NoTestRun here because Validation already passed with RunLocalTests
-        run: sf project deploy start --source-dir force-app --target-org Production --test-level NoTestRun --wait 30
+        run: |
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org Production \
+            --test-level NoTestRun \
+            --wait 30
 
   notify-main-failure:
     name: Failure Notification

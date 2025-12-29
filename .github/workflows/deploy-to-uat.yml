@@ -47,12 +47,19 @@ jobs:
       - name: Check for Apex
         id: check_apex
         run: |
-          count=$(find force-app -name "*.cls" | wc -l)
+          count=$(find force-app -name "*.cls" | wc -l || echo 0)
           echo "has_apex=$([ $count -gt 0 ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
       - name: Validate Metadata
         run: |
           TEST_LEVEL=$([[ "${{ steps.check_apex.outputs.has_apex }}" == "true" ]] && echo "RunLocalTests" || echo "NoTestRun")
-          sf project deploy validate --source-dir force-app --target-org UAT --test-level $TEST_LEVEL --wait 30
+          echo "Validating with TestLevel: $TEST_LEVEL"
+          # Added --verbose to see test details
+          sf project deploy validate \
+            --source-dir force-app \
+            --target-org UAT \
+            --test-level $TEST_LEVEL \
+            --wait 30 \
+            --verbose
 
   deploy-uat:
     name: Deploy to UAT
@@ -69,7 +76,12 @@ jobs:
       - name: Authenticate
         run: echo "${{ secrets.UAT_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias UAT --sfdx-url-stdin
       - name: Execute Deployment
-        run: sf project deploy start --source-dir force-app --target-org UAT --wait 30
+        run: |
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org UAT \
+            --test-level NoTestRun \
+            --wait 30
       - name: Open PR to Main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
