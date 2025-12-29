@@ -1,33 +1,74 @@
-name: rollback
+name: Rollback Pipeline
 
 on:
-  workflow_dispatch: # Manual trigger only for safety
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Select the Environment to Rollback'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - uat
+          - main
+      commit_sha:
+        description: 'Commit SHA to rollback to (Leave empty for HEAD~1)'
+        required: false
+        default: ''
 
 jobs:
-  rollback-dev:
-    name: Rollback Dev Sandbox
+  rollback:
+    name: Rollback ${{ github.event.inputs.target_env }}
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetches all history so we can go back to previous commits
+          fetch-depth: 0 # Essential to access Git history
 
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
 
-      - name: Authenticate to DevSandbox
+      - name: Authenticate to Target Org
         run: |
-          echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevSandbox --sfdx-url-stdin
+          if [ "${{ github.event.inputs.target_env }}" == "dev" ]; then
+            echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias target_org --sfdx-url-stdin
+          elif [ "${{ github.event.inputs.target_env }}" == "uat" ]; then
+            echo "${{ secrets.UAT_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias target_org --sfdx-url-stdin
+          else
+            echo "${{ secrets.PROD_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias target_org --sfdx-url-stdin
+          fi
 
-      - name: 1. Revert to Previous Commit
-        # This points the local files to exactly how they were one commit ago
+      - name: Revert Git State
         run: |
-          git checkout HEAD~1
-          echo "Current commit is now: $(git rev-parse HEAD)"
+          TARGET_COMMIT="${{ github.event.inputs.commit_sha }}"
+          if [ -z "$TARGET_COMMIT" ]; then
+            echo "No SHA provided, reverting to HEAD~1 (previous commit)"
+            git checkout HEAD~1
+          else
+            echo "Reverting to specific commit: $TARGET_COMMIT"
+            git checkout $TARGET_COMMIT
+          fi
+          echo "Current Git SHA is now: $(git rev-parse HEAD)"
 
-      - name: 2. Deploy Stable Metadata
-        # Deploys the reverted "stable" code back to the Sandbox
+      - name: Check for Apex (Conditional Testing)
+        id: check_apex
         run: |
-          sf project deploy start --source-dir force-app/main/default --target-org DevSandbox --wait 10 --ignore-conflicts
+          count=$(find force-app -name "*.cls" | wc -l)
+          echo "has_apex=$([ $count -gt 0 ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+
+      - name: Deploy Reverted Metadata
+        run: |
+          # Use NoTestRun for faster rollback unless it is Production
+          TEST_LEVEL="NoTestRun"
+          if [[ "${{ github.event.inputs.target_env }}" == "main" && "${{ steps.check_apex.outputs.has_apex }}" == "true" ]]; then
+            TEST_LEVEL="RunLocalTests"
+          fi
+          
+          echo "Rolling back with TestLevel: $TEST_LEVEL"
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org target_org \
+            --test-level $TEST_LEVEL \
+            --wait 30
