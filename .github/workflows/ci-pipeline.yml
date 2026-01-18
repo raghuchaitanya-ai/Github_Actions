@@ -1,4 +1,4 @@
-name: ci-pipeline
+name: Salesforce Core Dev Pipeline
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   static-code-analysis:
-    name: Static Code Analysis (PMD)
+    name: PMD Analysis
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -28,7 +28,7 @@ jobs:
       - name: Run PMD Analysis
         run: |
           ./pmd/bin/pmd check \
-            -d force-app/main/default \
+            -d force-app \
             -R rulesets/apex/quickstart.xml \
             -f text \
             -r pmd-report.txt \
@@ -38,19 +38,17 @@ jobs:
         run: |
           violations=$(wc -l < pmd-report.txt)
           if [ "$violations" -gt 250 ]; then
-            echo "PMD Quality Gate Failed."
+            echo "PMD Quality Gate Failed with $violations violations."
             exit 1
           fi
 
-  validate-and-deploy-dev:
-    name: Dev Validation & PR
-    runs-on: ubuntu-latest
+  deploy-to-dev:
+    name: Validate and Deploy to Dev
     needs: static-code-analysis
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -60,16 +58,14 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
 
-      - name: Authenticate Dev Org
+      - name: Authenticate Dev Sandbox
         run: |
           echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias dev_org --sfdx-url-stdin
 
       - name: Check for Apex Changes
         id: check_apex
         run: |
-          # Count .cls files in the deployment source
-          count=$(find force-app/main/default/classes -name "*.cls" | wc -l || echo 0)
-          echo "Found $count Apex classes."
+          count=$(find force-app -name "*.cls" | wc -l || echo 0)
           if [ "$count" -gt 0 ]; then
             echo "has_apex=true" >> $GITHUB_OUTPUT
           else
@@ -78,40 +74,31 @@ jobs:
 
       - name: Validation (Dry Run)
         run: |
-          # Logic to determine test level
           if [ "${{ steps.check_apex.outputs.has_apex }}" == "true" ]; then
             TEST_LEVEL="RunLocalTests"
           else
             TEST_LEVEL="NoTestRun"
           fi
           
-          echo "Starting Validation with TestLevel: $TEST_LEVEL"
-          
-          # Added --verbose to show detailed test execution in logs
           sf project deploy validate \
-            --source-dir force-app/main/default \
+            --source-dir force-app \
             --target-org dev_org \
             --test-level $TEST_LEVEL \
-            --wait 30 \
-            --verbose
+            --wait 30
 
       - name: Deployment (Actual)
         run: |
           sf project deploy start \
-            --source-dir force-app/main/default \
+            --source-dir force-app \
             --target-org dev_org \
-            --test-level NoTestRun \
             --wait 30
 
       - name: Open Pull Request to UAT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_EXISTS=$(gh pr list --head dev --base uat --json number --jq '.[0].number')
-          if [ -z "$PR_EXISTS" ]; then
-            gh pr create \
-              --base uat \
-              --head dev \
-              --title "Release from Dev to UAT: ${{ github.event.head_commit.message }}" \
-              --body "Automated PR created after successful Dev validation and PMD check."
-          else
-            echo "PR already exists: #$PR_EXISTS."
-          fi
+          gh pr create \
+            --base uat \
+            --head dev \
+            --title "Release to UAT: ${{ github.event.head_commit.message }}" \
+            --body "Automated PR created after successful Dev deployment." || echo "PR already exists"
