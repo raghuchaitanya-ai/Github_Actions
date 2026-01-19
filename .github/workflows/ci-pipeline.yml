@@ -33,7 +33,6 @@ jobs:
         run: |
           echo "${{ secrets.DEVHUB_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevHub_Git --sfdx-url-stdin --set-default-dev-hub
 
-      # FIXED: Changed --target-org to --target-dev-hub to specify the hub org
       - name: Create Scratch Org
         run: |
           sf org create scratch \
@@ -70,8 +69,9 @@ jobs:
           cd current-branch
           sf project deploy start --source-dir force-app --target-org DevSandbox_Git --test-level ${{ env.TEST_LEVEL }} --wait 30
 
-      # 4. Documentation & PR to QA
+      # 4. Documentation & PR to QA (Only runs if deployment succeeds)
       - name: Open Pull Request to QA
+        if: success()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -79,9 +79,9 @@ jobs:
             --base qa \
             --head dev \
             --title "Release to qa: ${{ github.event.head_commit.message }}" \
-            --body "Automated PR created after deploying into Dev Sandbox." || echo "PR already exists"
+            --body "Automated PR created after successful Dev Sandbox deployment." || echo "PR already exists"
 
-      # 5. Cleanup
+      # 5. Cleanup (Always runs even if tests fail)
       - name: Delete Scratch Org
         if: always()
         run: sf org delete scratch --target-org ValidationOrg --no-prompt || echo "Cleanup skipped"
