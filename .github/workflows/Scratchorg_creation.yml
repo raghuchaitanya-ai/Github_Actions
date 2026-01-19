@@ -1,21 +1,18 @@
-name: Scratch Org Creation & QA Integration
+name: Manual Scratch Org Validation
 
 on:
-  push:
-    branches:
-      - dev
+  workflow_dispatch: # Manual trigger only
 
 jobs:
-  validate-integration:
+  validate-scratch:
     runs-on: ubuntu-latest
     steps:
-      # 1. Environment Preparation
-      - name: Checkout Current Branch (dev)
+      - name: Checkout Current Changes
         uses: actions/checkout@v4
         with:
           path: current-branch
 
-      - name: Checkout QA Branch (Baseline)
+      - name: Checkout QA Baseline
         uses: actions/checkout@v4
         with:
           ref: qa
@@ -24,13 +21,10 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
 
-      # 2. Scratch Org Lifecycle
       - name: Authenticate DevHub
         run: |
           echo "${{ secrets.DEVHUB_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store \
-            --alias DevHub_Git \
-            --sfdx-url-stdin \
-            --set-default-dev-hub
+            --alias DevHub_Git --sfdx-url-stdin --set-default-dev-hub
 
       - name: Create Scratch Org
         run: |
@@ -38,26 +32,19 @@ jobs:
             --definition-file current-branch/config/project-scratch-def.json \
             --target-dev-hub DevHub_Git \
             --alias ValidationOrg \
-            --duration-days 1 \
-            --wait 20
+            --duration-days 1 --wait 20
 
-      # 3. Layered Metadata Deployment 
-      - name: Deploy QA Baseline to Scratch
+      - name: Generate Credentials
+        run: |
+          sf org generate password --target-org ValidationOrg
+          sf org display --target-org ValidationOrg
+
+      - name: Deploy QA Baseline
         run: |
           cd qa-branch
-          sf project deploy start \
-            --source-dir force-app \
-            --target-org ValidationOrg \
-            --test-level NoTestRun \
-            --wait 15 \
-            --ignore-conflicts
+          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
 
-      - name: Deploy Current Changes to Scratch
+      - name: Deploy current branch Changes
         run: |
           cd current-branch
-          sf project deploy start \
-            --source-dir force-app \
-            --target-org ValidationOrg \
-            --test-level NoTestRun \
-            --wait 15 \
-            --ignore-conflicts
+          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
