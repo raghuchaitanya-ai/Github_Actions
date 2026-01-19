@@ -1,0 +1,63 @@
+name: Scratch Org Creation & QA Integration
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  validate-integration:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Environment Preparation
+      - name: Checkout Current Branch (dev)
+        uses: actions/checkout@v4
+        with:
+          path: current-branch
+
+      - name: Checkout QA Branch (Baseline)
+        uses: actions/checkout@v4
+        with:
+          ref: qa
+          path: qa-branch
+
+      - name: Install Salesforce CLI
+        run: npm install --global @salesforce/cli
+
+      # 2. Scratch Org Lifecycle
+      - name: Authenticate DevHub
+        run: |
+          echo "${{ secrets.DEVHUB_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store \
+            --alias DevHub_Git \
+            --sfdx-url-stdin \
+            --set-default-dev-hub
+
+      - name: Create Scratch Org
+        run: |
+          sf org create scratch \
+            --definition-file current-branch/config/project-scratch-def.json \
+            --target-dev-hub DevHub_Git \
+            --alias ValidationOrg \
+            --duration-days 1 \
+            --wait 20
+
+      # 3. Layered Metadata Deployment 
+      - name: Deploy QA Baseline to Scratch
+        run: |
+          cd qa-branch
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org ValidationOrg \
+            --test-level NoTestRun \
+            --wait 15 \
+            --ignore-conflicts
+
+      - name: Deploy Current Changes to Scratch
+        run: |
+          cd current-branch
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org ValidationOrg \
+            --test-level NoTestRun \
+            --wait 15 \
+            --ignore-conflicts

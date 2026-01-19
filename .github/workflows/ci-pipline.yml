@@ -1,0 +1,58 @@
+name: Dev Sandbox Deployment & Open PR
+
+on:
+  # This typically runs after the 'Scratch Org Integration' workflow succeeds
+  workflow_run:
+    workflows: ["Scratch Org Creation & QA Integration"]
+    types:
+      - completed
+
+jobs:
+  deploy-and-pr:
+    # Only run if the previous Scratch Org validation was successful
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # 1. Setup
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Salesforce CLI
+        run: npm install --global @salesforce/cli
+
+      # 2. Dynamic Test Logic (Logic Gate)
+      - name: Check for Apex Changes
+        id: check_apex
+        run: |
+          count=$(find force-app -name "*.cls" | wc -l || echo 0)
+          echo "Found $count Apex classes."
+          if [ "$count" -gt 0 ]; then
+            echo "TEST_LEVEL=RunLocalTests" >> $GITHUB_ENV
+          else
+            echo "TEST_LEVEL=NoTestRun" >> $GITHUB_ENV
+          fi
+
+      # 3. Deploy to Dev Sandbox
+      - name: Authenticate & Deploy to Dev
+        run: |
+          echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevSandbox --sfdx-url-stdin
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org DevSandbox \
+            --test-level ${{ env.TEST_LEVEL }} \
+            --wait 30
+
+      # 4. PR Automation (Traceability Gate)
+      - name: Open Pull Request to QA
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base qa \
+            --head dev \
+            --title "Release to QA: ${{ github.event.head_commit.message }}" \
+            --body "Automated PR created after passing Scratch Org validation and Dev Sandbox deployment." || echo "PR already exists"
