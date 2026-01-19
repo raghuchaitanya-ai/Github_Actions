@@ -3,7 +3,7 @@ name: Salesforce CI Pipeline (QA Baseline → Scratch → Dev)
 on:
   push:
     branches:
-      - dev  # Triggers when code is pushed to the dev branch
+      - dev
 
 jobs:
   validate-and-deploy:
@@ -33,11 +33,12 @@ jobs:
         run: |
           echo "${{ secrets.DEVHUB_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevHub_Git --sfdx-url-stdin --set-default-dev-hub
 
+      # FIXED: Changed --target-org to --target-dev-hub to specify the hub org
       - name: Create Scratch Org
         run: |
           sf org create scratch \
             --definition-file current-branch/config/project-scratch-def.json \
-            --target-org DevHub_Git \
+            --target-dev-hub DevHub_Git \
             --alias ValidationOrg \
             --duration-days 1 \
             --wait 20
