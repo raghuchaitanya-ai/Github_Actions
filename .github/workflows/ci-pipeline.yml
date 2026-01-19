@@ -1,17 +1,19 @@
-name: Salesforce CI Pipeline (QA → Scratch → Dev)
+name: Salesforce CI Pipeline (QA Baseline → Scratch → Dev)
 
 on:
   push:
     branches:
-      - dev
+      - dev  # Triggers when code is pushed to the dev branch
 
 jobs:
-  # ------------------------------------
-  # 1. Scratch Org Validation (Integration Gate)
-  # ------------------------------------
-  validate-integration:
+  validate-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
     steps:
+      # 1. Environment Preparation
       - name: Checkout Current Branch (dev)
         uses: actions/checkout@v4
         with:
@@ -26,94 +28,59 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
 
+      # 2. Scratch Org Validation Gate
       - name: Authenticate DevHub
-        run: echo "${{ secrets.DEVHUB_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevHub --sfdx-url-stdin --set-default-dev-hub
+        run: |
+          echo "${{ secrets.DEVHUB_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevHub_Git --sfdx-url-stdin --set-default-dev-hub
 
       - name: Create Scratch Org
-        run: sf org create scratch --definition-file current-branch/config/project-scratch-def.json --target-org DevHub --alias ScratchOrg --set-default --duration-days 1
+        run: |
+          sf org create scratch \
+            --definition-file current-branch/config/project-scratch-def.json \
+            --target-org DevHub_Git \
+            --alias ValidationOrg \
+            --duration-days 1 \
+            --wait 20
 
-      # Baseline deployment from QA branch
-      - name: Deploy QA Baseline Metadata
+      - name: Deploy QA Baseline to Scratch
         run: |
           cd qa-branch
-          sf project deploy start --source-dir force-app --target-org ScratchOrg --test-level NoTestRun --wait 15
+          sf project deploy start --source-dir force-app --target-org ValidationOrg --test-level NoTestRun --wait 15
 
-      # Feature deployment from current branch (dev)
-      - name: Deploy Current Branch Changes to Scratch
+      - name: Deploy Current Changes to Scratch
         run: |
           cd current-branch
-          sf project deploy start --source-dir force-app --target-org ScratchOrg --test-level NoTestRun --wait 15
+          sf project deploy start --source-dir force-app --target-org ValidationOrg --test-level NoTestRun --wait 15
 
-      - name: Cleanup Scratch Org
-        if: always()
-        run: sf org delete scratch --target-org ScratchOrg --no-prompt || echo "Cleanup skipped"
-
-  # ------------------------------------
-  # 2. Deployment to Dev (Dynamic Testing Applied)
-  # ------------------------------------
-  deploy-dev:
-    runs-on: ubuntu-latest
-    needs: validate-integration
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Install Salesforce CLI
-        run: npm install --global @salesforce/cli
-
-      # Logical assessment of Apex
-      - name: Check for Apex Changes
+      # 3. Dynamic Deployment to Dev Sandbox
+      - name: Check for Apex Changes (Logic Gate)
         id: check_apex
         run: |
-          count=$(find force-app -name "*.cls" | wc -l || echo 0)
-          echo "Found $count Apex classes."
+          count=$(find current-branch/force-app -name "*.cls" | wc -l || echo 0)
           if [ "$count" -gt 0 ]; then
             echo "TEST_LEVEL=RunLocalTests" >> $GITHUB_ENV
           else
             echo "TEST_LEVEL=NoTestRun" >> $GITHUB_ENV
           fi
 
-      - name: Authenticate Dev Org
-        run: echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevOrg --sfdx-url-stdin
-
-      - name: Deploy to Dev Sandbox
+      - name: Authenticate & Deploy to Dev
         run: |
-          sf project deploy start --source-dir force-app --target-org DevOrg --test-level ${{ env.TEST_LEVEL }} --wait 15
+          echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevSandbox_Git --sfdx-url-stdin
+          cd current-branch
+          sf project deploy start --source-dir force-app --target-org DevSandbox_Git --test-level ${{ env.TEST_LEVEL }} --wait 30
 
-      # ------------------------------------
-      # 3. Open Pull Request to UAT (Traceability Gate)
-      # ------------------------------------
-      - name: Open Pull Request to UAT
+      # 4. Documentation & PR to QA
+      - name: Open Pull Request to QA
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr create \
-            --base uat \
+            --base qa \
             --head dev \
-            --title "Release to UAT: ${{ github.event.head_commit.message }}" \
-            --body "Automated PR created following successful Scratch Org integration and Dev Sandbox deployment." || echo "PR already exists"
+            --title "Release to qa: ${{ github.event.head_commit.message }}" \
+            --body "Automated PR created after deploying into Dev Sandbox." || echo "PR already exists"
 
-  # ------------------------------------
-  # 4. Notification (Crisis Prevention)
-  # ------------------------------------
-  notify-on-failure:
-    runs-on: ubuntu-latest
-    needs: [validate-integration, deploy-dev]
-    if: failure()
-    steps:
-      - name: Send Failure Email
-        uses: raghuchaitanya-ai/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Salesforce CI Failed - ${{ github.ref_name }}"
-          to: raghu.chaitanya@jadeglobal.com
-          from: GitHub-Actions
-          body: |
-            The Salesforce CI Pipeline has failed. 
-            View Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      # 5. Cleanup
+      - name: Delete Scratch Org
+        if: always()
+        run: sf org delete scratch --target-org ValidationOrg --no-prompt || echo "Cleanup skipped"
