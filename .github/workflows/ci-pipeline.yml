@@ -51,7 +51,7 @@ jobs:
       - name: Deploy Current Changes to Scratch
         run: |
           cd current-branch
-          sf project deploy start --source-dir force-app --target-org ValidationOrg --test-level NoTestRun --wait 15
+          sf project deploy start --source-dir force-app --target-org ValidationOrg --test-level NoTestRun --wait 15 --ignore-conflicts
 
       # 3. Dynamic Deployment to Dev Sandbox
       - name: Check for Apex Changes (Logic Gate)
