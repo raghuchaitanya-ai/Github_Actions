@@ -1,7 +1,7 @@
 name: Provision Scratch Org for Dev
 
 on:
-  workflow_dispatch: # Manual trigger from GitHub UI
+  workflow_dispatch: 
 
 jobs:
   provision-org:
@@ -23,7 +23,7 @@ jobs:
 
       - name: Create Scratch Org
         run: |
-          # Uses the config file from the QA baseline
+          # Point to the config file inside the subfolder
           sf org create scratch \
             --definition-file qa-baseline/config/project-scratch-def.json \
             --target-dev-hub DevHub_Git \
@@ -32,8 +32,9 @@ jobs:
 
       - name: Deploy QA Baseline Metadata
         run: |
+          cd qa-baseline
           sf project deploy start \
-            --source-dir $GITHUB_WORKSPACE/qa-baseline/force-app \
+            --source-dir force-app \
             --target-org Dev_Validation_Org \
             --ignore-conflicts \
             --wait 15
@@ -41,9 +42,7 @@ jobs:
       - name: Generate Access Credentials
         run: |
           sf org generate password --target-org Dev_Validation_Org
-          
           echo "--- ORG ACCESS DETAILS ---"
           sf org display --target-org Dev_Validation_Org
-          
-          echo "--- SFDX AUTH URL (Copy this to auth in VS Code) ---"
+          echo "--- SFDX AUTH URL ---"
           sf org display --target-org Dev_Validation_Org --verbose --json | jq -r '.result.sfdxAuthUrl'
