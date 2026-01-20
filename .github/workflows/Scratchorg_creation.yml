@@ -33,7 +33,6 @@ jobs:
             --alias DevHub_Git \
             --sfdx-url-stdin \
             --set-default-dev-hub
-
       - name: Create Scratch Org
         run: |
           # Explicitly calling the DevHub alias to prevent 'No Default Dev Hub' error
@@ -43,7 +42,6 @@ jobs:
             --target-dev-hub DevHub_Git \
             --duration-days 1 \
             --wait 20
-
       - name: Deploy QA Baseline to Org
         run: |
           # Using the full path to force-app within the checked-out folder
@@ -51,7 +49,6 @@ jobs:
             --source-dir qa-branch/force-app \
             --target-org ValidationOrg \
             --ignore-conflicts
-
       - name: Final Credentials for VS Code
         if: always()
         run: |
