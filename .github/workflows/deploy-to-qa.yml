@@ -82,6 +82,7 @@ jobs:
             --source-dir force-app \
             --target-org QASandbox_Git \
             --test-level NoTestRun \
+            --ignore-conflicts \
             --wait 30
       - name: Open PR to UAT
         env:
