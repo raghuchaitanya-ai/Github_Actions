@@ -1,17 +1,34 @@
-name: Provision Scratch Org for Dev
+name: Manual Scratch Org Validation
 
 on:
-  workflow_dispatch: # Manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Select branch to validate (QA baseline is applied first)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - qa
+          - uat
 
 jobs:
-  provision-org:
+  validate-scratch:
     runs-on: ubuntu-latest
     steps:
+      # 1. Setup Directories
+      - name: Checkout Target Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+          path: current-branch
+
       - name: Checkout QA Baseline
         uses: actions/checkout@v4
         with:
           ref: qa
-          path: qa-baseline
+          path: qa-branch
 
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
@@ -21,29 +38,35 @@ jobs:
           echo "${{ secrets.DEVHUB_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store \
             --alias DevHub_Git --sfdx-url-stdin --set-default-dev-hub
 
+      # 2. Scratch Org Creation
       - name: Create Scratch Org
         run: |
-          # Uses the config file from the QA baseline
           sf org create scratch \
-            --definition-file qa-baseline/config/project-scratch-def.json \
+            --definition-file current-branch/config/project-scratch-def.json \
             --target-dev-hub DevHub_Git \
-            --alias Dev_Validation_Org \
+            --alias ValidationOrg \
             --duration-days 1 --wait 20
 
-      - name: Deploy QA Baseline Metadata
+      # 3. Get Credentials (Moved up so you don't lose the org if deployment fails)
+      - name: Generate Org Credentials
+        if: always() # Runs even if creation partially failed
+        run: |
+          sf org generate password --target-org ValidationOrg
+          sf org display --target-org ValidationOrg --verbose
+
+      # 4. Deployments
+      - name: Deploy QA Baseline
         run: |
           sf project deploy start \
-            --source-dir $GITHUB_WORKSPACE/qa-baseline/force-app \
-            --target-org Dev_Validation_Org \
+            --source-dir qa-branch/force-app \
+            --target-org ValidationOrg \
             --ignore-conflicts \
             --wait 15
 
-      - name: Generate Access Credentials
+      - name: Deploy Selected Branch (Overlay)
         run: |
-          sf org generate password --target-org Dev_Validation_Org
-          
-          echo "--- ORG ACCESS DETAILS ---"
-          sf org display --target-org Dev_Validation_Org
-          
-          echo "--- SFDX AUTH URL (Copy this to auth in VS Code) ---"
-          sf org display --target-org Dev_Validation_Org --verbose --json | jq -r '.result.sfdxAuthUrl'
+          sf project deploy start \
+            --source-dir current-branch/force-app \
+            --target-org ValidationOrg \
+            --ignore-conflicts \
+            --wait 15
