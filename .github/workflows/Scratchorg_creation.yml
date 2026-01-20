@@ -1,9 +1,7 @@
 name: Manual Scratch Org Validation
 
 on:
-  push:
-    branches:
-      - dev
+  workflow_dispatch: # Manual trigger only
 
 jobs:
   validate-scratch:

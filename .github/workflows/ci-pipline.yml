@@ -1,6 +1,9 @@
 name: Dev Sandbox Deployment & PR
 
-
+on:
+  push:
+    branches:
+      - dev
 
 jobs:
   deploy-dev-sandbox:
