@@ -5,9 +5,6 @@
   "settings": {
     "lightningExperienceSettings": {
       "enableS1DesktopEnabled": true
-    },
-    "mobileComponentsSettings": {
-      "enableS1OfflineEnabled": true
     }
   }
 }
