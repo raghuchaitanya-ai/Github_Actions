@@ -79,6 +79,7 @@ jobs:
             --source-dir force-app \
             --target-org DevHub_Git \
             --test-level NoTestRun \
+            --ignore-conflicts \
             --wait 30
 
   notify-main-failure:
