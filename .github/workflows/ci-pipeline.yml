@@ -30,13 +30,17 @@ jobs:
 
       - name: Authenticate & Deploy to Dev
         run: |
-          echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevSandbox_Git --sfdx-url-stdin --ignore-conflicts --wait 15
+          # Clean Authentication (Flags like --wait do not belong here)
+          echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevSandbox_Git --sfdx-url-stdin
+          
+          # Deployment with correct flags
           sf project deploy start \
             --source-dir force-app \
             --target-org DevSandbox_Git \
             --test-level ${{ env.TEST_LEVEL }} \
+            --ignore-conflicts \
             --wait 30
-
+            
       - name: Open PR to QA
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
