@@ -4,5 +4,5 @@
     <description>This custom settings contains all attributes used in In App Checklist</description>
     <enableFeeds>false</enableFeeds>
     <label>In App Checklist Settings</label>
-    <visibility>Protected</visibility>
+    <visibility>Public</visibility>
 </CustomObject>
