@@ -1,0 +1,62 @@
+name: Manual Scratch Org Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Select branch to overlay on QA baseline'
+        required: true
+        default: 'qa'  
+        type: choice
+        options:
+          - qa
+          - dev
+          - uat
+
+jobs:
+  validate-scratch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Initialize Feature Workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+          path: current-branch
+
+      - name: Sync QA Baseline Metadata
+        uses: actions/checkout@v4
+        with:
+          ref: qa
+          path: qa-branch
+
+      - name: Setup Salesforce Environment
+        run: npm install --global @salesforce/cli
+
+      - name: Authenticate with DevHub
+        run: |
+          echo "${{ secrets.DEVHUB_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store \
+            --alias DevHub_Git --sfdx-url-stdin --set-default-dev-hub
+
+      - name: Provision Scratch Instance
+        run: |
+          sf org create scratch \
+            --definition-file current-branch/config/project-scratch-def.json \
+            --target-dev-hub DevHub_Git \
+            --alias ValidationOrg \
+            --duration-days 1 --wait 20
+
+      - name: Generate Security Access
+        run: |
+          sf org generate password --target-org ValidationOrg
+          sf org display --target-org ValidationOrg --json
+
+      - name: Deploy QA Foundation
+        run: |
+          cd qa-branch
+          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
+
+      - name: Deploy Target Overlay
+        run: |
+          # If target_branch is 'qa', this step will effectively verify the first deploy
+          cd ../current-branch
+          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
