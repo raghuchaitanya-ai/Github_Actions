@@ -1,0 +1,48 @@
+name: Dev Sandbox Deployment & PR
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  deploy-dev-sandbox:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Salesforce CLI
+        run: npm install --global @salesforce/cli
+
+      - name: Check for Apex (Dynamic Test Level)
+        id: check_apex
+        run: |
+          count=$(find force-app -name "*.cls" | wc -l || echo 0)
+          if [ "$count" -gt 0 ]; then 
+            echo "TEST_LEVEL=RunLocalTests" >> $GITHUB_ENV
+          else 
+            echo "TEST_LEVEL=NoTestRun" >> $GITHUB_ENV
+          fi
+
+      - name: Authenticate & Deploy to Dev
+        run: |
+          echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevSandbox --sfdx-url-stdin
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org DevSandbox \
+            --test-level ${{ env.TEST_LEVEL }} \
+            --wait 30
+
+      - name: Open PR to QA
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base qa \
+            --head dev \
+            --title "Release: ${{ github.event.head_commit.message }}" \
+            --body "Automated PR created after successful Dev Sandbox deployment." || echo "PR already exists"
