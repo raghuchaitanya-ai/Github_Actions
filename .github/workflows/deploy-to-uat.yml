@@ -29,6 +29,7 @@ jobs:
       - name: Enforce PMD Quality Gate
         run: |
           violations=$(wc -l < pmd-report.txt)
+          echo "Total PMD Violations: $violations"
           if [ "$violations" -gt 250 ]; then exit 1; fi
 
   validate-uat:
@@ -43,7 +44,7 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
       - name: Authenticate
-        run: echo "${{ secrets.UAT_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias UAT --sfdx-url-stdin
+        run: echo "${{ secrets.UAT_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias UATSandbox_Git --sfdx-url-stdin
       - name: Check for Apex
         id: check_apex
         run: |
@@ -53,10 +54,9 @@ jobs:
         run: |
           TEST_LEVEL=$([[ "${{ steps.check_apex.outputs.has_apex }}" == "true" ]] && echo "RunLocalTests" || echo "NoTestRun")
           echo "Validating with TestLevel: $TEST_LEVEL"
-          # Added --verbose to see test details
           sf project deploy validate \
             --source-dir force-app \
-            --target-org UAT \
+            --target-org UATSandbox_Git \
             --test-level $TEST_LEVEL \
             --wait 30 \
             --verbose
@@ -74,12 +74,12 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
       - name: Authenticate
-        run: echo "${{ secrets.UAT_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias UAT --sfdx-url-stdin
+        run: echo "${{ secrets.UAT_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store --alias UATSandbox_Git --sfdx-url-stdin
       - name: Execute Deployment
         run: |
           sf project deploy start \
             --source-dir force-app \
-            --target-org UAT \
+            --target-org UATSandbox_Git \
             --test-level NoTestRun \
             --wait 30
       - name: Open PR to Main
