@@ -1,17 +1,33 @@
-name: Provision Scratch Org for Dev
+name: Manual Scratch Org Validation
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Select branch to validate (QA baseline is applied first)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - qa  # Added QA so you can select it from the UI
+          - uat
 
 jobs:
-  provision-org:
+  validate-scratch:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Target Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+          path: current-branch
+
       - name: Checkout QA Baseline
         uses: actions/checkout@v4
         with:
           ref: qa
-          path: qa-baseline
+          path: qa-branch
 
       - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
@@ -23,26 +39,26 @@ jobs:
 
       - name: Create Scratch Org
         run: |
-          # Point to the config file inside the subfolder
+          # Use config from the branch you selected (even if it's qa)
           sf org create scratch \
-            --definition-file qa-baseline/config/project-scratch-def.json \
+            --definition-file current-branch/config/project-scratch-def.json \
             --target-dev-hub DevHub_Git \
-            --alias Dev_Validation_Org \
+            --alias ValidationOrg \
             --duration-days 1 --wait 20
 
-      - name: Deploy QA Baseline Metadata
+      - name: Deploy QA Baseline
         run: |
-          cd qa-baseline
-          sf project deploy start \
-            --source-dir force-app \
-            --target-org Dev_Validation_Org \
-            --ignore-conflicts \
-            --wait 15
+          cd qa-branch
+          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
 
-      - name: Generate Access Credentials
+      - name: Deploy Selected Branch (Overlay)
         run: |
-          sf org generate password --target-org Dev_Validation_Org
-          echo "--- ORG ACCESS DETAILS ---"
-          sf org display --target-org Dev_Validation_Org
-          echo "--- SFDX AUTH URL ---"
-          sf org display --target-org Dev_Validation_Org --verbose --json | jq -r '.result.sfdxAuthUrl'
+          # Go back to root, then into current-branch
+          cd ../current-branch
+          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
+
+      - name: Final Credentials for VS Code
+        run: |
+          sf org generate password --target-org ValidationOrg
+          # Verbose output gives you the Sfdx Auth URL needed for VS Code
+          sf org display --target-org ValidationOrg --verbose --json
