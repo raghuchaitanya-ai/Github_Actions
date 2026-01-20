@@ -1,0 +1,50 @@
+name: Manual Scratch Org Validation
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  validate-scratch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Current Changes
+        uses: actions/checkout@v4
+        with:
+          path: current-branch
+
+      - name: Checkout QA Baseline
+        uses: actions/checkout@v4
+        with:
+          ref: qa
+          path: qa-branch
+
+      - name: Install Salesforce CLI
+        run: npm install --global @salesforce/cli
+
+      - name: Authenticate DevHub
+        run: |
+          echo "${{ secrets.DEVHUB_SFDX_AUTH_URL }}" | sf auth:sfdxurl:store \
+            --alias DevHub_Git --sfdx-url-stdin --set-default-dev-hub
+
+      - name: Create Scratch Org
+        run: |
+          sf org create scratch \
+            --definition-file current-branch/config/project-scratch-def.json \
+            --target-dev-hub DevHub_Git \
+            --alias ValidationOrg \
+            --duration-days 1 --wait 20
+
+      - name: Generate Credentials
+        run: |
+          sf org generate password --target-org ValidationOrg
+          sf org display --target-org ValidationOrg
+
+      - name: Deploy QA Baseline
+        run: |
+          cd qa-branch
+          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
+
+      - name: Deploy current branch Changes
+        run: |
+          cd current-branch
+          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
