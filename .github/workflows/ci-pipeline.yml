@@ -30,10 +30,10 @@ jobs:
 
       - name: Authenticate & Deploy to Dev
         run: |
-          echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevSandbox --sfdx-url-stdin
+          echo "${{ secrets.DEV_SF_AUTH_URL }}" | sf auth:sfdxurl:store --alias DevSandbox_Git --sfdx-url-stdin --ignore-conflicts --wait 15
           sf project deploy start \
             --source-dir force-app \
-            --target-org DevSandbox \
+            --target-org DevSandbox_Git \
             --test-level ${{ env.TEST_LEVEL }} \
             --wait 30
 
