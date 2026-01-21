@@ -1,16 +1,27 @@
-name: Manual Scratch Org Validation
+name: Scratch Org Creation & Validation
 
 on:
-  workflow_dispatch: # Manual trigger only
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Select branch to validate (QA baseline is applied first)'
+        required: true
+        default: 'qa'
+        type: choice
+        options:
+          - dev
+          - qa
+          - uat
 
 jobs:
   validate-scratch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Current Changes
+      - name: Checkout Target Branch
         uses: actions/checkout@v4
         with:
-          path: current-branch
+          ref: ${{ github.event.inputs.target_branch }}
+          path: target-branch
 
       - name: Checkout QA Baseline
         uses: actions/checkout@v4
@@ -29,22 +40,36 @@ jobs:
       - name: Create Scratch Org
         run: |
           sf org create scratch \
-            --definition-file current-branch/config/project-scratch-def.json \
+            --definition-file target-branch/config/project-scratch-def.json \
             --target-dev-hub DevHub_Git \
             --alias ValidationOrg \
             --duration-days 1 --wait 20
 
-      - name: Generate Credentials
+      - name: Generate and Display Credentials
         run: |
+          # 1. Generate the password immediately after creation
           sf org generate password --target-org ValidationOrg
+          
+          # 2. Get the details in JSON format
+          ORG_JSON=$(sf org display --target-org ValidationOrg --json)
+          
+          # 3. Print to the Job Summary (visible in the GitHub UI)
+          echo "### 🚀 Scratch Org Ready!" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Login URL** | $(echo $ORG_JSON | jq -r '.result.instanceUrl') |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Username** | $(echo $ORG_JSON | jq -r '.result.username') |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Password** | $(echo $ORG_JSON | jq -r '.result.password') |" >> $GITHUB_STEP_SUMMARY
+          
+          # 4. Also print to the standard logs so you can see it while the job runs
           sf org display --target-org ValidationOrg
 
       - name: Deploy QA Baseline
         run: |
           cd qa-branch
-          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
+          sf project deploy start --source-dir force-app --target-org ValidationOrg --ignore-conflicts --wait 15
 
-      - name: Deploy current branch Changes
+      - name: Deploy Selected Branch Changes
         run: |
-          cd current-branch
-          sf project deploy start --target-org ValidationOrg --ignore-conflicts --wait 15
+          cd $GITHUB_WORKSPACE/target-branch
+          sf project deploy start --source-dir force-app --target-org ValidationOrg --ignore-conflicts --wait 15
